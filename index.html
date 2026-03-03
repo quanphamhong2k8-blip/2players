@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>ROBOT DUEL — 3D Fighter</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a0f; overflow: hidden; font-family: 'Rajdhani', sans-serif; }
+        #canvas-container { position: relative; width: 100vw; height: 100vh; }
+        canvas { display: block; }
+
+        /* HUD */
+        #hud { position:absolute;top:0;left:0;right:0;pointer-events:none;z-index:10;padding:18px 30px 0;display:flex;align-items:flex-start;justify-content:space-between; }
+        .player-panel { width: 320px; }
+        .player-name { font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px; }
+        .p1-name { color:#00e5ff;text-align:left; }
+        .p2-name { color:#ff4081;text-align:right; }
+        .hp-track { width:100%;height:22px;background:#111;border:1px solid #333;position:relative;overflow:hidden;clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px)); }
+        .hp-bar { height:100%;transition:width 0.15s ease;position:relative; }
+        .hp-bar-1 { background:linear-gradient(90deg,#00bcd4,#00e5ff); }
+        .hp-bar-2 { background:linear-gradient(270deg,#f50057,#ff4081); }
+        .hp-value { position:absolute;top:50%;transform:translateY(-50%);font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:white;z-index:1; }
+        .hp-value-1 { right:8px; }
+        .hp-value-2 { left:8px; }
+        .skill-bar { display:flex;gap:5px;margin-top:6px; }
+        .skill-pip { width:40px;height:6px;background:#222;border:1px solid #444; }
+        .skill-pip.ready-1 { background:#00e5ff;border-color:#00e5ff;box-shadow:0 0 6px #00e5ff; }
+        .skill-pip.ready-2 { background:#ff4081;border-color:#ff4081;box-shadow:0 0 6px #ff4081; }
+        /* Shield bar */
+        .shield-track { width:100%;height:8px;background:#0a0a1a;border:1px solid #333;position:relative;overflow:hidden;margin-top:4px;clip-path:polygon(0 0,calc(100% - 4px) 0,100% 4px,100% 100%,4px 100%,0 calc(100% - 4px)); }
+        .shield-bar-1 { height:100%;background:linear-gradient(90deg,#0066cc,#33ddff);transition:width 0.2s; }
+        .shield-bar-2 { height:100%;background:linear-gradient(270deg,#990033,#ff66aa);transition:width 0.2s; }
+        .shield-label { font-size:9px;letter-spacing:2px;color:#444;margin-top:2px; }
+        .shield-track.active-1 { border-color:#00e5ff!important;box-shadow:0 0 8px #00e5ff80; }
+        .shield-track.active-2 { border-color:#ff4081!important;box-shadow:0 0 8px #ff408180; }
+        /* Cooldown pips for skills */
+        .cd-row { display:flex;gap:4px;margin-top:5px;align-items:center; }
+        .cd-pip { width:26px;height:5px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:1px;transition:all 0.3s; }
+        .cd-pip.rdy-c { background:#00e5ff;border-color:#00e5ff;box-shadow:0 0 5px #00e5ff; }
+        .cd-pip.rdy-m { background:#ff4081;border-color:#ff4081;box-shadow:0 0 5px #ff4081; }
+        .cd-pip.rdy-y { background:#ffd700;border-color:#ffd700;box-shadow:0 0 5px #ffd700; }
+
+        /* CENTER */
+        #center-hud { position:absolute;top:14px;left:50%;transform:translateX(-50%);text-align:center;z-index:10;pointer-events:none; }
+        #timer { font-family:'Orbitron',sans-serif;font-size:38px;font-weight:900;color:white;line-height:1;text-shadow:0 0 20px rgba(255,255,255,0.4); }
+        #timer.urgent { color:#ff4444;animation:pulse 0.5s infinite; }
+        #round-label { font-size:11px;letter-spacing:4px;color:#666;text-transform:uppercase;margin-top:2px; }
+
+        /* FLOATERS */
+        .damage-float { position:absolute;z-index:20;font-family:'Orbitron',sans-serif;font-size:28px;font-weight:900;pointer-events:none;animation:floatUp 0.9s ease-out forwards; }
+        @keyframes floatUp { 0%{opacity:1;transform:translateY(0) scale(1.2)} 100%{opacity:0;transform:translateY(-70px) scale(0.8)} }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+        /* OVERLAY */
+        #overlay { position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.88);z-index:30;backdrop-filter:blur(6px); }
+        #overlay h1 { font-family:'Orbitron',sans-serif;font-size:clamp(28px,5vw,52px);font-weight:900;letter-spacing:6px;background:linear-gradient(135deg,#00e5ff,#7c4dff,#ff4081);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px; }
+        .sub { color:#555;font-size:13px;letter-spacing:3px;margin-bottom:36px; }
+
+        /* LOBBY */
+        .lobby-grid { display:flex;gap:20px;margin-bottom:24px;flex-wrap:wrap;justify-content:center; }
+        .lobby-card { width:250px;padding:22px;background:rgba(255,255,255,0.03);border:1px solid #1e1e2e;border-radius:4px;display:flex;flex-direction:column;align-items:center;gap:12px; }
+        .lobby-card h3 { font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:3px;color:#666; }
+        .lobby-card p { color:#444;font-size:11px;text-align:center;line-height:1.6; }
+        .net-btn { font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;letter-spacing:2px;padding:11px 22px;cursor:pointer;background:transparent;border:2px solid;border-radius:2px;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);transition:all 0.2s;width:100%; }
+        .btn-host { border-color:#00e5ff;color:#00e5ff; }
+        .btn-host:hover { background:#00e5ff;color:#000; }
+        .btn-join { border-color:#ff4081;color:#ff4081; }
+        .btn-join:hover { background:#ff4081;color:#000; }
+        .btn-local { border-color:#a0a0ff;color:#a0a0ff; }
+        .btn-local:hover { background:#a0a0ff;color:#000; }
+        .room-input { width:100%;padding:10px 12px;background:#0d0d1a;border:1px solid #333;color:#fff;font-family:'Rajdhani',sans-serif;font-size:15px;letter-spacing:1px;outline:none;border-radius:2px;pointer-events:all;cursor:text;user-select:text;-webkit-user-select:text; }
+        .room-input:focus { border-color:#ff4081; }
+
+        #room-code-box { background:#0d0d1a;border:1px solid #00e5ff;padding:12px 16px;text-align:center;width:100%;display:none; }
+        #room-code-box .label { font-size:10px;letter-spacing:2px;color:#555;margin-bottom:6px; }
+        #room-code-box .code { font-family:'Orbitron',sans-serif;font-size:14px;font-weight:900;color:#00e5ff;letter-spacing:2px;cursor:pointer;word-break:break-all; }
+        #room-code-box .hint { font-size:10px;color:#444;margin-top:4px; }
+
+        #net-status { font-size:12px;letter-spacing:2px;color:#555;margin-top:8px;min-height:20px;text-align:center; }
+        .s-ok { color:#00e5ff!important; }
+        .s-err { color:#ff4081!important; }
+        .s-wait { color:#ffd700!important;animation:blink 1s infinite; }
+
+        /* CONTROLS HINT */
+        #controls-hint { position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:50px;z-index:10;pointer-events:none; }
+        .ctrl-block { text-align:center; }
+        .ctrl-title { font-size:11px;letter-spacing:3px;color:#444;margin-bottom:8px; }
+        .ctrl-grid { display:grid;grid-template-columns:repeat(4,1fr);gap:4px; }
+        .key { background:#111;border:1px solid #222;border-radius:3px;width:36px;height:32px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#555; }
+        .key.attack { border-color:#00e5ff;color:#00e5ff; }
+        .key.attack2 { border-color:#ff4081;color:#ff4081; }
+        .key.special { border-color:#ffd700;color:#ffd700; }
+
+        /* WIN SCREEN */
+        #winner-text { font-family:'Orbitron',sans-serif;font-size:clamp(20px,4vw,42px);font-weight:900;letter-spacing:4px;margin-bottom:8px; }
+        #ko-text { font-family:'Orbitron',sans-serif;font-size:clamp(40px,8vw,90px);font-weight:900;background:linear-gradient(135deg,#ffd700,#ff6600);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:20px;animation:koAnim 0.3s ease-out; }
+        @keyframes koAnim { 0%{transform:scale(3);opacity:0} 100%{transform:scale(1);opacity:1} }
+        #restart-btn { font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;letter-spacing:3px;padding:14px 40px;cursor:pointer;background:transparent;border:2px solid #ffd700;color:#ffd700;clip-path:polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%);transition:all 0.2s;margin-top:10px; }
+        #restart-btn:hover { background:#ffd700;color:#000; }
+
+        #flash { position:absolute;inset:0;z-index:25;pointer-events:none;opacity:0;transition:opacity 0.05s; }
+        #net-badge { position:absolute;bottom:20px;right:20px;font-size:10px;letter-spacing:2px;color:#333;z-index:10;pointer-events:none; }
+        #net-badge.online { color:#00e5ff; }
+    </style>
+</head>
+<body>
+<div id="canvas-container">
+    <div id="hud">
+        <div class="player-panel">
+            <div class="player-name p1-name" id="p1-label">◄ ROBOT-01</div>
+            <div class="hp-track">
+                <div class="hp-bar hp-bar-1" id="hp-bar-1" style="width:100%"></div>
+                <span class="hp-value hp-value-1" id="hp-val-1">100</span>
+            </div>
+            <div class="skill-bar"><div class="skill-pip ready-1"></div><div class="skill-pip"></div><div class="skill-pip"></div></div>
+            <div class="shield-track" id="shield-track-1"><div class="shield-bar-1" id="shield-bar-1" style="width:100%"></div></div>
+            <div class="shield-label">SHIELD · J:PUNCH · I:BALL · O:BURST</div>
+            <div class="cd-row">
+                <div class="cd-pip rdy-c" id="cd-ball-1" title="Ball I"></div>
+                <div class="cd-pip rdy-y" id="cd-burst-1" title="Burst O"></div>
+            </div>
+        </div>
+        <div id="center-hud">
+            <div id="timer">60</div>
+            <div id="round-label">ROUND 1</div>
+        </div>
+        <div class="player-panel">
+            <div class="player-name p2-name" id="p2-label">ROBOT-02 ►</div>
+            <div class="hp-track" style="direction:rtl;">
+                <div class="hp-bar hp-bar-2" id="hp-bar-2" style="width:100%"></div>
+                <span class="hp-value hp-value-2" id="hp-val-2" style="direction:ltr;">100</span>
+            </div>
+            <div class="skill-bar" style="justify-content:flex-end"><div class="skill-pip ready-2"></div><div class="skill-pip"></div><div class="skill-pip"></div></div>
+            <div class="shield-track" id="shield-track-2"><div class="shield-bar-2" id="shield-bar-2" style="width:100%"></div></div>
+            <div class="shield-label" style="text-align:right">PUNCH:1 · BALL:2 · BURST:3 · SHIELD</div>
+            <div class="cd-row" style="justify-content:flex-end">
+                <div class="cd-pip rdy-m" id="cd-ball-2" title="Ball 2"></div>
+                <div class="cd-pip rdy-y" id="cd-burst-2" title="Burst 3"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="controls-hint" style="display:none;">
+        <div class="ctrl-block">
+            <div class="ctrl-title" id="ctrl-title-1">PLAYER 1</div>
+            <div class="ctrl-grid">
+                <div class="key">A/D</div><div class="key">W</div><div class="key">S</div><div class="key attack">J</div>
+                <div class="key attack">I</div><div class="key special">O</div><div></div><div></div>
+            </div>
+            <div style="color:#444;font-size:10px;margin-top:4px">2xA:Dodge · 2xD:Dash · 2xW:2Jump · S:Shield · J:Punch · I:Ball · O:Burst</div>
+        </div>
+        <div class="ctrl-block" id="ctrl-p2">
+            <div class="ctrl-title">PLAYER 2</div>
+            <div class="ctrl-grid">
+                <div class="key">←/→</div><div class="key">↑</div><div class="key">↓</div><div class="key attack2">1</div>
+                <div class="key attack2">2</div><div class="key special">3</div><div></div><div></div>
+            </div>
+            <div style="color:#444;font-size:10px;margin-top:4px">2x←:Dodge · 2x→:Dash · 2x↑:2Jump · ↓:Shield · 1:Punch · 2:Ball · 3:Burst</div>
+        </div>
+    </div>
+
+    <div id="net-badge">LOCAL</div>
+    <div id="flash"></div>
+</div>
+
+<!-- LOBBY -->
+<div id="overlay">
+    <h1>ROBOT DUEL</h1>
+    <p class="sub">3D FIGHTING · ONLINE MULTIPLAYER</p>
+    <div class="lobby-grid">
+        <!-- HOST -->
+        <div class="lobby-card">
+            <h3>🌐 TẠO PHÒNG</h3>
+            <p>Tạo phòng và gửi mã cho bạn bè qua mạng internet</p>
+            <button class="net-btn btn-host" onclick="hostGame()">TẠO PHÒNG</button>
+            <div id="room-code-box">
+                <div class="label">MÃ PHÒNG — BẤM ĐỂ SAO CHÉP</div>
+                <div class="code" id="room-code-text" onclick="copyRoomCode()">...</div>
+                <div class="hint">Đang chờ bạn bè kết nối...</div>
+            </div>
+        </div>
+        <!-- JOIN -->
+        <div class="lobby-card">
+            <h3>🔗 VÀO PHÒNG</h3>
+            <p>Nhập mã phòng từ bạn bè để kết nối và chiến đấu</p>
+            <input class="room-input" id="join-input" placeholder="Dán mã phòng vào đây..."
+                onclick="this.focus()" autocomplete="off" spellcheck="false" />
+            <button class="net-btn" style="border-color:#888;color:#888;font-size:11px;padding:8px;" onclick="pasteRoomCode()">📋 DÁN MÃ TỪ CLIPBOARD</button>
+            <button class="net-btn btn-join" onclick="joinGame()">KẾT NỐI ▶</button>
+        </div>
+        <!-- LOCAL -->
+        <div class="lobby-card">
+            <h3>🎮 CHƠI LOCAL</h3>
+            <p>2 người chơi trên cùng bàn phím, một màn hình</p>
+            <button class="net-btn btn-local" onclick="localGame()">BẮT ĐẦU</button>
+        </div>
+    </div>
+    <div id="net-status">Đang khởi tạo...</div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// ── NETWORKING ────────────────────────────────────────────────
+let peer, conn;
+let netMode = 'local'; // 'local' | 'host' | 'client'
+let myPeerId = null;
+let _gameStarted = false;
+let _readyRetryInterval = null;  // host retry gửi ready
+let _pingRetryInterval  = null;  // client retry gửi ping
+
+// ICE servers đa tầng: STUN Google + TURN TCP/UDP/443
+// Port 443 TCP là quan trọng nhất với mạng 5G/Mobile vì không bị chặn
+const ICE_SERVERS = [
+    // STUN
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    // TURN UDP (nhanh, nhưng 5G đôi khi chặn)
+    { urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:3478',
+      username: 'openrelayproject', credential: 'openrelayproject' },
+    // TURN TCP port 443 — quan trọng nhất, không bị nhà mạng di động chặn
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:a.relay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject', credential: 'openrelayproject' },
+    // TURN TLS (giả lập HTTPS, vượt mọi firewall)
+    { urls: 'turns:openrelay.metered.ca:443',
+      username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turns:a.relay.metered.ca:443',
+      username: 'openrelayproject', credential: 'openrelayproject' },
+];
+
+const PEER_CFG = {
+    config: {
+        iceServers: ICE_SERVERS,
+        iceTransportPolicy: 'all',      // thử direct trước, fallback TURN
+        iceCandidatePoolSize: 10,       // chuẩn bị sẵn nhiều candidate
+        bundlePolicy: 'max-bundle',     // gom kênh, giảm overhead
+        rtcpMuxPolicy: 'require'
+    }
+};
+
+const CONN_OPTS = {
+    reliable:      true,
+    serialization: 'json',
+    label:         'robotduel'
+    // KHÔNG truyền config ở đây — PeerJS sẽ dùng config của Peer()
+};
+
+// ── Khởi tạo Peer ──────────────────────────────────────────────
+function initPeer() {
+    if (peer && !peer.destroyed) peer.destroy();
+    peer = new Peer(PEER_CFG);
+
+    peer.on('open', id => {
+        myPeerId = id;
+        console.log('[NET] My Peer ID:', id);
+        setStatus('Sẵn sàng — Chọn chế độ chơi', 'ok');
+    });
+
+    peer.on('error', err => {
+        console.error('[NET] Peer error:', err.type, err);
+        if (err.type === 'network' || err.type === 'server-error') {
+            setStatus('Lỗi mạng (' + err.type + '), đang thử lại...', 'wait');
+            setTimeout(initPeer, 2000);
+        } else {
+            setStatus('Lỗi: ' + err.type, 'err');
+        }
+    });
+
+    peer.on('disconnected', () => {
+        console.warn('[NET] Disconnected from signaling, reconnecting...');
+        setStatus('Mất tín hiệu, đang kết nối lại...', 'wait');
+        try { peer.reconnect(); } catch(e) { setTimeout(initPeer, 2000); }
+    });
+
+    // ── HOST: nhận kết nối đến ─────────────────────────────────
+    peer.on('connection', c => {
+        console.log('[NET] Incoming connection from', c.peer);
+        conn = c;
+
+        const onOpen = () => {
+            console.log('[NET] Host conn open');
+            setStatus('Bạn bè đã kết nối! Đang vào game...', 'ok');
+
+            conn.on('data',  onNetData);
+            conn.on('close', () => { setStatus('Bạn bè ngắt kết nối!', 'err'); stopRetries(); });
+            conn.on('error', e => setStatus('Lỗi đường truyền: ' + e, 'err'));
+
+            beginOnlineGame('host');
+
+            // Gửi 'ready' và retry mỗi 600ms cho đến khi nhận ACK từ client
+            // (quan trọng với 5G vì gói đầu tiên hay bị drop)
+            let readyAck = false;
+            _readyRetryInterval = setInterval(() => {
+                if (readyAck || !conn || !conn.open) { clearInterval(_readyRetryInterval); return; }
+                console.log('[NET] Host sending ready...');
+                conn.send({ type: 'ready' });
+            }, 600);
+
+            // Lưu callback để clear khi nhận ack
+            window._onReadyAck = () => {
+                readyAck = true;
+                clearInterval(_readyRetryInterval);
+                console.log('[NET] Ready ACK received from client');
+            };
+        };
+
+        if (conn.open) { onOpen(); }
+        else           { conn.on('open', onOpen); }
+    });
+}
+initPeer();
+
+// ── CLIENT: kết nối tới host ───────────────────────────────────
+window.hostGame = function() {
+    if (!myPeerId) { setStatus('Chưa sẵn sàng, thử lại sau!', 'err'); return; }
+    netMode = 'host';
+    document.getElementById('room-code-box').style.display = 'block';
+    document.getElementById('room-code-text').textContent = myPeerId;
+    setStatus('Đang chờ bạn bè kết nối...', 'wait');
+};
+
+window.joinGame = function() {
+    const id = document.getElementById('join-input').value.trim();
+    if (!id) { setStatus('Hãy nhập mã phòng!', 'err'); return; }
+    netMode = 'client';
+    setStatus('Đang kết nối... (có thể mất 5-15 giây)', 'wait');
+    stopRetries();
+
+    if (conn) { try { conn.close(); } catch(e){} conn = null; }
+
+    console.log('[NET] Client connecting to', id);
+    conn = peer.connect(id, CONN_OPTS);
+
+    const onOpen = () => {
+        console.log('[NET] Client conn open');
+        setStatus('Đã kết nối! Chờ host...', 'ok');
+
+        conn.on('data',  onNetData);
+        conn.on('close', () => { setStatus('Host ngắt kết nối!', 'err'); stopRetries(); });
+        conn.on('error', e => setStatus('Lỗi: ' + e, 'err'));
+
+        // Gửi ping và retry mỗi 600ms cho đến khi nhận 'ready' từ host
+        let gotReady = false;
+        _pingRetryInterval = setInterval(() => {
+            if (gotReady || !conn || !conn.open) { clearInterval(_pingRetryInterval); return; }
+            console.log('[NET] Client sending ping...');
+            conn.send({ type: 'ping' });
+        }, 600);
+
+        window._onGotReady = () => {
+            gotReady = true;
+            clearInterval(_pingRetryInterval);
+        };
+    };
+
+    if (conn.open) { onOpen(); }
+    else           { conn.on('open', onOpen); }
+
+    conn.on('error', err => {
+        console.error('[NET] Connect error:', err);
+        setStatus('Không kết nối được: ' + (err.message || err.type || err), 'err');
+        netMode = 'local'; stopRetries();
+    });
+
+    // Timeout 20 giây (5G có thể ICE chậm hơn WiFi)
+    window._joinTimeout = setTimeout(() => {
+        if (_gameStarted) return;
+        setStatus('Hết thời gian — Thử lại hoặc kiểm tra mã phòng', 'err');
+        netMode = 'local'; stopRetries();
+        try { conn && conn.close(); } catch(e){}
+    }, 20000);
+};
+
+function stopRetries() {
+    if (_readyRetryInterval) { clearInterval(_readyRetryInterval); _readyRetryInterval = null; }
+    if (_pingRetryInterval)  { clearInterval(_pingRetryInterval);  _pingRetryInterval  = null; }
+    if (window._joinTimeout) { clearTimeout(window._joinTimeout);  window._joinTimeout  = null; }
+}
+
+// ── DATA HANDLER ──────────────────────────────────────────────
+function onNetData(data) {
+    if (!data || !data.type) return;
+
+    if (data.type === 'state') {
+        const remote = netMode === 'host' ? fighters[1] : fighters[0];
+        remote.x = data.x; remote.y = data.y; remote.vy = data.vy;
+        remote.hp = data.hp; remote.facing = data.facing;
+        remote.stunTimer = data.stunTimer; remote.shield = data.shield || 100;
+        remote.onGround = (data.y <= 0.01); // suy từ y position
+        updateHP(remote); updateShieldBar(remote);
+
+        // Tự suy Idle/Walking từ trạng thái chuyển động — không cần event riêng
+        if (remote.stunTimer <= 0 && remote.onGround) {
+            const targetAnim = data.moving ? 'Walking' : 'Idle';
+            if (remote.actions[targetAnim] && remote.currentAction !== remote.actions[targetAnim]) {
+                fadeToAction(remote, targetAnim);
+            }
+        }
+
+    } else if (data.type === 'anim') {
+        const remote = netMode === 'host' ? fighters[1] : fighters[0];
+        if (!data.anim || !remote.actions[data.anim]) return;
+
+        const animDurations = {
+            'Punch':    1150,
+            'ThumbsUp': 1000,
+            'No':        600,
+            'Jump':      900,
+            'Running':   350,
+            'Dance':    2000,
+            'Death':    1500,
+        };
+
+        const dur = animDurations[data.anim] || 900;
+        const action = remote.actions[data.anim];
+
+        // Set LoopOnce TRƯỚC khi play để clip chạy đủ 1 lần
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+
+        // Fade prev out, fade action in
+        if (remote.currentAction && remote.currentAction !== action) {
+            remote.currentAction.fadeOut(0.1);
+        }
+        remote.currentAction = action;
+        action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.05).play();
+
+        // Về Idle sau đúng thời lượng clip (trừ Death/Dance)
+        if (data.anim !== 'Death' && data.anim !== 'Dance') {
+            setTimeout(() => {
+                // Chỉ về Idle nếu không có animation khác đã override
+                if (remote.currentAction === action && remote.actions['Idle']) {
+                    action.fadeOut(0.15);
+                    remote.currentAction = remote.actions['Idle'];
+                    remote.currentAction
+                        .setLoop(THREE.LoopRepeat, Infinity)
+                        .reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.15).play();
+                }
+            }, dur);
+        }
+
+    } else if (data.type === 'hit') {
+        // Máy nhận: trừ HP local fighter (người đang bị đánh ở máy này)
+        const local = netMode === 'host' ? fighters[0] : fighters[1];
+        local.hp = Math.max(0, local.hp - data.dmg);
+        local.stunTimer = 0.3;
+        updateHP(local);
+        updateShieldBar(local);
+        fadeToAction(local, 'No');
+        setTimeout(() => { if (local.model) fadeToAction(local, 'Idle'); }, 300);
+        showDamageFloat(local, data.dmg, data.combo);
+        flashScreen(netMode === 'host' ? '#ff4081' : '#00e5ff');
+        if (local.hp <= 0) endGame(netMode === 'host' ? 1 : 0);
+
+    } else if (data.type === 'proj') {
+        const ownerId = netMode === 'host' ? 1 : 0;
+        const color = data.color || 0xff4081;
+        if (data.ptype === 'ball') {
+            const geo = new THREE.SphereGeometry(0.18, 8, 8);
+            const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 3, transparent: true, opacity: 0.9 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(data.x, data.y, 0); scene.add(mesh);
+            mesh.add(new THREE.PointLight(color, 4, 3));
+            projectiles.push({ x: data.x, y: data.y, vx: data.facing * 14, ownerId, dmg: 10, mesh, type: 'ball' });
+        }
+
+    } else if (data.type === 'ping') {
+        // Client ping → host gửi ready (đã có retry ở trên, đây là response ngay lập tức)
+        if (netMode === 'host' && conn && conn.open) {
+            conn.send({ type: 'ready' });
+        }
+
+    } else if (data.type === 'ready') {
+        // Host ready → client vào game + gửi ACK
+        if (netMode === 'client') {
+            if (conn && conn.open) conn.send({ type: 'ready_ack' });
+            if (window._onGotReady) window._onGotReady();
+            stopRetries();
+            setStatus('Đã kết nối! Vào game...', 'ok');
+            beginOnlineGame('client');
+        }
+
+    } else if (data.type === 'ready_ack') {
+        // Client đã nhận ready → host dừng retry
+        if (netMode === 'host') {
+            if (window._onReadyAck) window._onReadyAck();
+        }
+
+    } else if (data.type === 'rematch') {
+        doReset();
+    }
+}
+
+let _lastSentAnim = '';
+let _lastSentAnimTime = 0;
+
+// One-shot animations — gửi event riêng, không lặp lại trong 600ms
+const ONE_SHOT_ANIMS = new Set(['Punch','ThumbsUp','Jump','No','Dance','Death','Running']);
+
+function netSendState(f) {
+    if (!conn || !conn.open) return;
+    try {
+        // Gửi vx (vận tốc ngang) để remote tự suy Idle/Walking
+        const vx = (f.x - (f._prevX || f.x));
+        f._prevX = f.x;
+        conn.send({ type:'state', x:f.x, y:f.y, vy:f.vy, hp:f.hp,
+                    facing:f.facing, stunTimer:f.stunTimer, shield:f.shield,
+                    moving: Math.abs(vx) > 0.001 });
+    } catch(e) { console.warn('[NET] sendState failed:', e); }
+}
+
+// Gửi animation event riêng — chỉ one-shot, dedup trong 600ms
+function netSendAnim(animName) {
+    if (!conn || !conn.open) return;
+    if (!ONE_SHOT_ANIMS.has(animName)) return;
+    const now = performance.now();
+    // Cho phép gửi lại nếu khác tên HOẶC đã quá 600ms từ lần gửi trước
+    if (_lastSentAnim === animName && now - _lastSentAnimTime < 600) return;
+    _lastSentAnim = animName;
+    _lastSentAnimTime = now;
+    try { conn.send({ type:'anim', anim: animName }); }
+    catch(e) {}
+}
+
+function netSendHit(dmg, combo) {
+    if (!conn || !conn.open) return;
+    try { conn.send({ type:'hit', dmg, combo }); }
+    catch(e) { console.warn('[NET] sendHit failed:', e); }
+}
+
+
+window.localGame = function() {
+    netMode = 'local';
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('controls-hint').style.display = 'flex';
+    document.getElementById('net-badge').textContent = 'LOCAL';
+    doReset();
+};
+
+window.copyRoomCode = function() {
+    navigator.clipboard.writeText(myPeerId).then(() => {
+        document.getElementById('room-code-text').textContent = '✓ ĐÃ SAO CHÉP!';
+        setTimeout(() => document.getElementById('room-code-text').textContent = myPeerId, 1500);
+    });
+};
+
+window.pasteRoomCode = function() {
+    const input = document.getElementById('join-input');
+    if (navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText().then(text => {
+            input.value = text.trim();
+            input.style.borderColor = '#ff4081';
+        }).catch(() => {
+            // Fallback: focus the input so user can Ctrl+V manually
+            input.focus();
+            input.select();
+            setStatus('Hãy bấm Ctrl+V vào ô nhập liệu', '');
+        });
+    } else {
+        input.focus();
+        setStatus('Hãy bấm Ctrl+V vào ô nhập liệu', '');
+    }
+};
+
+function beginOnlineGame(role) {
+    if (_gameStarted) return;
+    _gameStarted = true;
+    stopRetries();
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('controls-hint').style.display = 'flex';
+    document.getElementById('ctrl-p2').style.display = 'none';
+    document.getElementById('ctrl-title-1').textContent = role === 'host' ? 'BẠN (ROBOT-01)' : 'BẠN (ROBOT-02)';
+    document.getElementById('net-badge').textContent = role === 'host' ? '🟢 ONLINE — HOST' : '🟢 ONLINE — CLIENT';
+    document.getElementById('net-badge').classList.add('online');
+    doReset();
+}
+
+function setStatus(msg, cls) {
+    const el = document.getElementById('net-status');
+    el.textContent = msg;
+    el.className = cls === 'ok' ? 's-ok' : cls === 'err' ? 's-err' : cls === 'wait' ? 's-wait' : '';
+}
+
+// ── SCENE ─────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x0a0a1a, 0.04);
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 200);
+camera.position.set(0, 4, 14); camera.lookAt(0, 2, 0);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
+document.getElementById('canvas-container').prepend(renderer.domElement);
+window.addEventListener('resize', () => { camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); });
+
+scene.add(new THREE.AmbientLight(0x202040, 1.5));
+const sun = new THREE.DirectionalLight(0xffffff, 3);
+sun.position.set(5,10,5); sun.castShadow=true; sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.left=-15; sun.shadow.camera.right=15; sun.shadow.camera.top=15; sun.shadow.camera.bottom=-15; sun.shadow.camera.near=1; sun.shadow.camera.far=50;
+scene.add(sun);
+const rimLight1 = new THREE.PointLight(0x00e5ff, 8, 20); rimLight1.position.set(-8,4,0); scene.add(rimLight1);
+const rimLight2 = new THREE.PointLight(0xff4081, 8, 20); rimLight2.position.set(8,4,0); scene.add(rimLight2);
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(30,20), new THREE.MeshStandardMaterial({color:0x0d0d1a,roughness:0.8,metalness:0.3}));
+floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; scene.add(floor);
+scene.add(new THREE.GridHelper(30,30,0x1a1a3a,0x111130));
+
+const backWall = new THREE.Mesh(new THREE.BoxGeometry(30,8,0.5), new THREE.MeshStandardMaterial({color:0x080818,roughness:0.9}));
+backWall.position.set(0,4,-10); backWall.receiveShadow=true; scene.add(backWall);
+
+for (let i=-12; i<=12; i+=4) {
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.08,6,0.1), new THREE.MeshStandardMaterial({color:i%8===0?0x00e5ff:0xff4081,emissive:i%8===0?0x00e5ff:0xff4081,emissiveIntensity:2}));
+    strip.position.set(i,3,-9.7); scene.add(strip);
+}
+const platform = new THREE.Mesh(new THREE.BoxGeometry(20,0.4,8), new THREE.MeshStandardMaterial({color:0x111128,roughness:0.6,metalness:0.5}));
+platform.position.set(0,-0.2,-1); platform.castShadow=true; platform.receiveShadow=true; scene.add(platform);
+[-10,10].forEach(x => {
+    const e = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.05,8), new THREE.MeshStandardMaterial({color:0x00e5ff,emissive:0x00e5ff,emissiveIntensity:3}));
+    e.position.set(x,0.01,-1); scene.add(e);
+});
+
+const pCount = 300;
+const pGeo = new THREE.BufferGeometry();
+const pPos = new Float32Array(pCount*3);
+for (let i=0;i<pCount;i++){pPos[i*3]=(Math.random()-0.5)*40;pPos[i*3+1]=Math.random()*12;pPos[i*3+2]=(Math.random()-0.5)*15-5;}
+pGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));
+scene.add(new THREE.Points(pGeo, new THREE.PointsMaterial({color:0x4040ff,size:0.05,transparent:true,opacity:0.6})));
+
+// ── GAME STATE ────────────────────────────────────────────────
+const GS = { MENU:0, PLAYING:1, OVER:2 };
+let gameState = GS.MENU;
+let gameTime = 60, timerInterval = null;
+const FLOOR_Y=0, GRAVITY=-18, JUMP_VEL=9, SPEED=4.5, HIT_RANGE=2.4;
+const BOUNDS = { left:-8, right:8 };
+const DASH_DIST = 3.0;   // distance for dash/dodge
+const SHIELD_MAX = 100;
+const SHIELD_REGEN = 18; // per second when not blocking
+const SHIELD_DRAIN = 40; // per hit blocked
+
+const fighters = [
+    { id:0, hp:100, maxHp:100, x:-3, y:0, vy:0, onGround:true, facing:1,
+      model:null, mixer:null, actions:{}, currentAction:null, color:0x00e5ff, name:'ROBOT-01',
+      attackCooldown:0, ballCooldown:0, burstCooldown:0,
+      dashCooldown:0, comboCount:0, lastHitTime:0, stunTimer:0,
+      shield:100, blocking:false, jumpCount:0,
+      lastKeyTime:{}, lastKeyCode:{} },
+    { id:1, hp:100, maxHp:100, x:3,  y:0, vy:0, onGround:true, facing:-1,
+      model:null, mixer:null, actions:{}, currentAction:null, color:0xff4081, name:'ROBOT-02',
+      attackCooldown:0, ballCooldown:0, burstCooldown:0,
+      dashCooldown:0, comboCount:0, lastHitTime:0, stunTimer:0,
+      shield:100, blocking:false, jumpCount:0,
+      lastKeyTime:{}, lastKeyCode:{} }
+];
+
+const keys = {};
+const justPressed = {}; // chỉ true đúng 1 frame khi nhấn xuống — tránh spam attack
+// Double-tap detection
+const dbTap = {}; // key → last press time
+// Keys that should NOT be prevented (allow paste, copy, etc.)
+const ALLOW_DEFAULT = new Set(['KeyV','KeyC','KeyX','KeyA','Tab','KeyZ','KeyY']);
+
+window.addEventListener('keydown', e => {
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+    if (e.ctrlKey || e.metaKey) return;
+
+    if (!keys[e.code]) {
+        // Lần đầu nhấn: đánh dấu justPressed và kiểm tra double-tap
+        justPressed[e.code] = true;
+        const now = performance.now();
+        if (dbTap[e.code] && now - dbTap[e.code] < 280) {
+            handleDoubleTap(e.code);
+            dbTap[e.code] = 0;
+        } else {
+            dbTap[e.code] = now;
+        }
+    }
+    // Nếu giữ phím (e.repeat), KHÔNG set justPressed lại
+    keys[e.code] = true;
+    e.preventDefault();
+});
+window.addEventListener('keyup', e => {
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+    keys[e.code] = false;
+    justPressed[e.code] = false;
+});
+
+function getMyFighter() {
+    if (netMode === 'client') return fighters[1];
+    return fighters[0]; // host hoặc local P1
+}
+
+function handleDoubleTap(code) {
+    if (netMode === 'local') {
+        // Local: P1 dùng WASD, P2 dùng arrows
+        if (code==='KeyA')       doDash(fighters[0], -1);
+        if (code==='KeyD')       doDash(fighters[0],  1);
+        if (code==='KeyW')       doDoubleJump(fighters[0]);
+        if (code==='ArrowLeft')  doDash(fighters[1], -1);
+        if (code==='ArrowRight') doDash(fighters[1],  1);
+        if (code==='ArrowUp')    doDoubleJump(fighters[1]);
+    } else {
+        // Online: cả host lẫn client đều dùng WASD (ctrlLocal[0])
+        const me = getMyFighter();
+        if (code==='KeyA')       doDash(me, -1);
+        if (code==='KeyD')       doDash(me,  1);
+        if (code==='KeyW')       doDoubleJump(me);
+    }
+}
+
+function doDash(f, dir) {
+    if (f.dashCooldown > 0 || f.stunTimer > 0) return;
+    const fromX = f.x;
+    f.x = Math.max(BOUNDS.left, Math.min(BOUNDS.right, f.x + dir * DASH_DIST));
+    f.dashCooldown = 0.8;
+
+    // Afterimage: 4 bóng mờ dọc theo đường dash
+    if (f.model) {
+        for (let i=0; i<4; i++) {
+            const t = (i+1)/4;
+            const ghostX = fromX + (f.x - fromX) * t;
+            const ghostColor = new THREE.Color(f.color);
+            // Clone geometry đơn giản là box làm silhouette
+            const ghost = new THREE.Mesh(
+                new THREE.BoxGeometry(0.35, 1.1, 0.25),
+                new THREE.MeshStandardMaterial({
+                    color: ghostColor, emissive: ghostColor,
+                    emissiveIntensity: 2 - i*0.4,
+                    transparent: true, opacity: 0.45 - i*0.1,
+                    depthWrite: false
+                })
+            );
+            ghost.position.set(ghostX, f.y + 0.55, 0);
+            scene.add(ghost);
+            // Fade out và xóa
+            const fadeSteps = 8;
+            let step = 0;
+            const iv = setInterval(() => {
+                step++;
+                ghost.material.opacity -= 0.06;
+                ghost.material.emissiveIntensity -= 0.2;
+                if (step >= fadeSteps) { clearInterval(iv); scene.remove(ghost); }
+            }, 30);
+        }
+
+        // Flash particle burst tại vị trí xuất phát
+        for (let j=0; j<6; j++) {
+            const spark = new THREE.Mesh(
+                new THREE.SphereGeometry(0.06, 4, 4),
+                new THREE.MeshStandardMaterial({ color:f.color, emissive:f.color, emissiveIntensity:5, transparent:true, opacity:1 })
+            );
+            spark.position.set(fromX + (Math.random()-0.5)*0.4, f.y+0.6+(Math.random()-0.5)*0.8, 0);
+            scene.add(spark);
+            const vx2=(Math.random()-0.5)*4, vy2=Math.random()*3;
+            let life2=0;
+            const sv = setInterval(()=>{
+                life2+=0.03; spark.position.x+=vx2*0.03; spark.position.y+=vy2*0.03-0.04*life2;
+                spark.material.opacity-=0.08;
+                if(spark.material.opacity<=0){clearInterval(sv);scene.remove(spark);}
+            },30);
+        }
+    }
+
+    fadeToAction(f, 'Running');
+    setTimeout(() => { if(f.model) fadeToAction(f,'Idle'); }, 280);
+}
+
+function doDoubleJump(f) {
+    if (f.jumpCount >= 2 || f.stunTimer > 0) return;
+    f.vy = JUMP_VEL * 0.85;
+    f.onGround = false;
+    f.jumpCount++;
+    fadeToAction(f, 'Jump');
+
+    // Ring burst effect at jump position
+    for (let j=0; j<8; j++) {
+        const angle = (j/8)*Math.PI*2;
+        const spark = new THREE.Mesh(
+            new THREE.SphereGeometry(0.07, 4, 4),
+            new THREE.MeshStandardMaterial({ color:f.color, emissive:f.color, emissiveIntensity:5, transparent:true, opacity:1 })
+        );
+        spark.position.set(f.x + Math.cos(angle)*0.3, f.y+0.8, Math.sin(angle)*0.3);
+        scene.add(spark);
+        const vxS=Math.cos(angle)*3, vzS=Math.sin(angle)*3;
+        let lifeS=0;
+        const sv=setInterval(()=>{
+            lifeS+=0.04; spark.position.x+=vxS*0.04; spark.position.z+=vzS*0.04;
+            spark.material.opacity-=0.07;
+            if(spark.material.opacity<=0){clearInterval(sv);scene.remove(spark);}
+        },30);
+    }
+}
+
+// P1 controls (local) / online always uses these for "self"
+const ctrlLocal = [
+    { left:'KeyA', right:'KeyD', up:'KeyW', block:'KeyS',
+      punch:'KeyJ', ball:'KeyI', burst:'KeyO' },
+    { left:'ArrowLeft', right:'ArrowRight', up:'ArrowUp', block:'ArrowDown',
+      punch:'Digit1', ball:'Digit2', burst:'Digit3' }
+];
+
+// ── LOAD MODELS ───────────────────────────────────────────────
+const loader = new GLTFLoader();
+function loadFighter(f) {
+    return new Promise(resolve => {
+        loader.load('https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb', gltf => {
+            f.model = gltf.scene;
+            f.model.scale.set(0.6,0.6,0.6); f.model.castShadow=true;
+            f.model.traverse(child => {
+                if (child.isMesh) {
+                    child.castShadow=true;
+                    if (child.material) { const m=child.material.clone(); m.emissive=new THREE.Color(f.color); m.emissiveIntensity=0.06; child.material=m; }
+                }
+            });
+            scene.add(f.model);
+            f.mixer = new THREE.AnimationMixer(f.model);
+            gltf.animations.forEach(clip => { f.actions[clip.name]=f.mixer.clipAction(clip); });
+            fadeToAction(f,'Idle');
+            resolve();
+        });
+    });
+}
+function fadeToAction(f, name, dur=0.15) {
+    if (!f.actions[name]) return;
+    const prev = f.currentAction;
+    f.currentAction = f.actions[name];
+    if (prev && prev !== f.currentAction) prev.fadeOut(dur);
+    // Reset về loop thường (phòng trường hợp trước đó bị set LoopOnce)
+    f.currentAction.setLoop(THREE.LoopRepeat, Infinity);
+    f.currentAction.clampWhenFinished = false;
+    f.currentAction.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(dur).play();
+}
+Promise.all([loadFighter(fighters[0]), loadFighter(fighters[1])]).then(() => {
+    // Đảm bảo cả 2 model đứng đúng vị trí ban đầu ngay sau khi load
+    fighters.forEach(f => {
+        if (f.model) {
+            f.model.position.set(f.x, f.y, 0);
+            f.model.rotation.y = f.facing > 0 ? Math.PI/2 : -Math.PI/2;
+            f.model.visible = true;
+        }
+    });
+});
+
+// ── PROJECTILES ───────────────────────────────────────────────
+const projectiles = []; // { x, y, vx, ownerId, dmg, mesh, type }
+
+function spawnBall(attacker) {
+    if (attacker.ballCooldown > 0) return;
+    attacker.ballCooldown = 2.0;
+    fadeToAction(attacker, 'ThumbsUp');
+    setTimeout(() => { if(attacker.model) fadeToAction(attacker,'Idle'); }, 500);
+
+    const geo = new THREE.SphereGeometry(0.18, 8, 8);
+    const mat = new THREE.MeshStandardMaterial({
+        color: attacker.color, emissive: attacker.color, emissiveIntensity: 3,
+        transparent: true, opacity: 0.9
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(attacker.x + attacker.facing*0.6, attacker.y+1.2, 0);
+    scene.add(mesh);
+    // glow
+    const glow = new THREE.PointLight(attacker.color, 4, 3);
+    mesh.add(glow);
+    projectiles.push({ x:attacker.x+attacker.facing*0.6, y:attacker.y+1.2, vx:attacker.facing*14, ownerId:attacker.id, dmg:10, mesh, type:'ball' });
+    if (netMode!=='local') netSendProjectile('ball', attacker.x+attacker.facing*0.6, attacker.y+1.2, attacker.facing, attacker.color);
+}
+
+function spawnBurst(attacker) {
+    if (attacker.burstCooldown > 0) return;
+    attacker.burstCooldown = 5.0;
+    fadeToAction(attacker, 'Dance');
+    setTimeout(() => { if(attacker.model) fadeToAction(attacker,'Idle'); }, 600);
+
+    // 10 tia bắn tuần tự, mỗi tia cách nhau 80ms, bay thẳng theo hướng facing
+    // Các tia cách nhau theo trục Y để dễ nhìn
+    const offsets = [-1.2,-0.9,-0.6,-0.3,0,0.3,0.6,0.9,1.2,1.5]; // Y offset từ chân lên đầu
+    for (let i=0; i<10; i++) {
+        const delay = i * 80; // 80ms giữa các tia
+        setTimeout(() => {
+            if (gameState !== GS.PLAYING) return;
+            const yOff = offsets[i];
+            // Tia dạng hình trụ dài bay ngang
+            const geo = new THREE.CylinderGeometry(0.06, 0.06, 0.6, 6);
+            geo.rotateZ(Math.PI/2); // nằm ngang
+            const col = attacker.color;
+            const mat = new THREE.MeshStandardMaterial({
+                color: col, emissive: col, emissiveIntensity: 5,
+                transparent: true, opacity: 0.95
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            const startX = attacker.x + attacker.facing * 0.7;
+            const startY = attacker.y + 0.4 + yOff * 0.18; // spread nhẹ quanh tâm
+            mesh.position.set(startX, startY, 0);
+            scene.add(mesh);
+            const glow = new THREE.PointLight(col, 3, 2.5);
+            mesh.add(glow);
+            projectiles.push({
+                x: startX, y: startY,
+                vx: attacker.facing * 22,
+                ownerId: attacker.id, dmg: 5,
+                mesh, type: 'burst', life: 0.9,
+                hit: false
+            });
+        }, delay);
+    }
+}
+
+function updateProjectiles(dt) {
+    for (let i = projectiles.length-1; i >= 0; i--) {
+        const p = projectiles[i];
+        p.x += p.vx * dt;
+        if (p.vy !== undefined) p.y += p.vy * dt;
+        if (p.life !== undefined) p.life -= dt;
+        p.mesh.position.set(p.x, p.y, 0);
+        p.mesh.rotation.z += dt * 5;
+
+        // Out of bounds or expired
+        if (p.x < -12 || p.x > 12 || p.y < -2 || (p.life !== undefined && p.life <= 0)) {
+            scene.remove(p.mesh);
+            projectiles.splice(i,1);
+            continue;
+        }
+
+        // Hit check (local only — online uses netSendHit)
+        const target = fighters[1-p.ownerId];
+        const dx = Math.abs(p.x - target.x);
+        const dy = Math.abs(p.y - (target.y+1.2));
+        if (!p.hit && dx < 0.7 && dy < 1.2) {
+            p.hit = true;
+            scene.remove(p.mesh);
+            projectiles.splice(i,1);
+            let dmg = p.dmg;
+            if (target.blocking && target.shield > 0) {
+                dmg = Math.floor(dmg*0.1);
+                target.shield = Math.max(0, target.shield - SHIELD_DRAIN*0.5);
+            } else {
+                target.stunTimer = 0.2;
+                fadeToAction(target,'No');
+                setTimeout(()=>{ if(target.model) fadeToAction(target,'Idle'); },200);
+            }
+            applyDamage(fighters[p.ownerId], target, dmg);
+        }
+    }
+}
+
+function applyDamage(attacker, defender, dmg) {
+    const now = performance.now();
+    if (now-attacker.lastHitTime < 1500) attacker.comboCount++; else attacker.comboCount=1;
+    attacker.lastHitTime = now;
+
+    // Luôn apply damage local để HP bar và KO hoạt động đúng ở cả 2 máy
+    defender.hp = Math.max(0, defender.hp - dmg);
+    updateHP(defender);
+    updateShieldBar(defender);
+    showDamageFloat(defender, dmg, attacker.comboCount);
+    flashScreen(attacker.id===0 ? '#00e5ff' : '#ff4081');
+
+    if (netMode !== 'local') {
+        // Gửi hit event để máy kia cũng cập nhật HP + animation
+        netSendHit(dmg, attacker.comboCount);
+    }
+
+    if (defender.hp <= 0) endGame(attacker.id);
+}
+
+function netSendProjectile(type, x, y, facing, color) {
+    if (!conn||!conn.open) return;
+    conn.send({type:'proj', ptype:type, x, y, facing, color});
+}
+
+// ── ATTACK ────────────────────────────────────────────────────
+function tryPunch(attacker, defender) {
+    if (attacker.attackCooldown > 0 || attacker.stunTimer > 0) return;
+    attacker.attackCooldown = 0.5;
+    fadeToAction(attacker, 'Punch');
+    // Punch clip của RobotExpressive dài ~1.2s — để chạy hết trước khi về Idle
+    setTimeout(()=>{ if(attacker.model) fadeToAction(attacker,'Idle'); }, 1100);
+    if (Math.abs(attacker.x-defender.x) > HIT_RANGE) return;
+
+    let dmg = 8;
+    if (defender.blocking && defender.shield>0) {
+        dmg = Math.floor(dmg*0.1);
+        defender.shield = Math.max(0, defender.shield-SHIELD_DRAIN);
+        updateShieldBar(defender);
+    } else {
+        if (defender.stunTimer<=0) {
+            defender.stunTimer=0.3; fadeToAction(defender,'No');
+            setTimeout(()=>{ if(defender.model) fadeToAction(defender,'Idle'); },300);
+        }
+    }
+    applyDamage(attacker, defender, dmg);
+}
+
+function updateHP(f) {
+    document.getElementById(`hp-bar-${f.id+1}`).style.width = (f.hp/f.maxHp*100)+'%';
+    document.getElementById(`hp-val-${f.id+1}`).textContent = f.hp;
+}
+function updateShieldBar(f) {
+    const pct = (f.shield/SHIELD_MAX*100);
+    document.getElementById(`shield-bar-${f.id+1}`).style.width = pct+'%';
+    const track = document.getElementById(`shield-track-${f.id+1}`);
+    if (f.blocking) track.classList.add(f.id===0?'active-1':'active-2');
+    else track.classList.remove('active-1','active-2');
+}
+function updateCDPips(f) {
+    const sfx = f.id+1;
+    const ballPip = document.getElementById(`cd-ball-${sfx}`);
+    const burstPip = document.getElementById(`cd-burst-${sfx}`);
+    const cls = f.id===0?'rdy-c':'rdy-m';
+    if (ballPip)  ballPip.className  = 'cd-pip' + (f.ballCooldown<=0  ? ` ${cls}`  : '');
+    if (burstPip) burstPip.className = 'cd-pip' + (f.burstCooldown<=0 ? ' rdy-y' : '');
+}
+function showDamageFloat(f, dmg, combo) {
+    const el = document.createElement('div'); el.className='damage-float';
+    const v = new THREE.Vector3(f.x,f.y+2.5,0); v.project(camera);
+    el.style.left = ((v.x+1)/2*window.innerWidth-30+(Math.random()-0.5)*40)+'px';
+    el.style.top  = ((1-v.y)/2*window.innerHeight-20)+'px';
+    el.style.color = f.id===0?'#ff4081':'#00e5ff';
+    el.style.textShadow = `0 0 20px ${f.id===0?'#ff4081':'#00e5ff'}`;
+    el.textContent = combo>1?`-${dmg} x${combo}!`:`-${dmg}`;
+    if (combo>=3) { el.style.fontSize='38px'; el.style.color='#ffd700'; }
+    document.getElementById('canvas-container').appendChild(el);
+    setTimeout(()=>el.remove(),900);
+}
+function flashScreen(color) {
+    const fl=document.getElementById('flash'); fl.style.background=color; fl.style.opacity='0.25';
+    setTimeout(()=>fl.style.opacity='0',80);
+}
+
+// ── UPDATE FIGHTER ─────────────────────────────────────────────
+let lastNetSend = 0;
+function updateFighter(f, dt, isMine) {
+    if (!f.model) return;
+    f.attackCooldown  = Math.max(0, f.attackCooldown - dt);
+    f.ballCooldown    = Math.max(0, f.ballCooldown - dt);
+    f.burstCooldown   = Math.max(0, f.burstCooldown - dt);
+    f.dashCooldown    = Math.max(0, f.dashCooldown - dt);
+    f.stunTimer       = Math.max(0, f.stunTimer - dt);
+
+    if (!isMine) {
+        // Remote fighter: luôn apply position/rotation đã sync từ mạng vào model
+        f.model.position.set(f.x, f.y, 0);
+        f.model.rotation.y = f.facing > 0 ? Math.PI/2 : -Math.PI/2;
+        if (f.mixer) f.mixer.update(dt);
+        return;
+    }
+    if (f.stunTimer > 0) { if (f.mixer) f.mixer.update(dt); updateCDPips(f); return; }
+
+    const ctrl = netMode==='client' ? ctrlLocal[0] : ctrlLocal[f.id];
+    let moving=false, animName=null;
+
+    // Block (S / ArrowDown)
+    f.blocking = keys[ctrl.block] && f.shield > 0;
+    if (f.blocking) {
+        fadeToAction(f, 'No'); // block pose
+        updateShieldBar(f);
+    } else {
+        // Shield regen when not blocking
+        if (f.shield < SHIELD_MAX) {
+            f.shield = Math.min(SHIELD_MAX, f.shield + SHIELD_REGEN*dt);
+            updateShieldBar(f);
+        }
+    }
+
+    // Movement (disable while blocking)
+    if (!f.blocking) {
+        if (keys[ctrl.left])  { f.x-=SPEED*dt; f.facing=-1; moving=true; }
+        if (keys[ctrl.right]) { f.x+=SPEED*dt; f.facing=1;  moving=true; }
+    }
+    f.x = Math.max(BOUNDS.left, Math.min(BOUNDS.right, f.x));
+
+    // Jump (single tap, double jump handled via double-tap)
+    if (justPressed[ctrl.up] && f.onGround && !f.blocking) {
+        justPressed[ctrl.up] = false;
+        f.vy=JUMP_VEL; f.onGround=false; f.jumpCount=1;
+        fadeToAction(f,'Jump'); animName='Jump';
+    }
+    f.vy += GRAVITY*dt; f.y += f.vy*dt;
+    if (f.y <= FLOOR_Y) { f.y=0; f.vy=0; if(!f.onGround){f.onGround=true; f.jumpCount=0;} }
+
+    // Attacks — dùng justPressed thay vì keys để chỉ fire 1 lần mỗi lần nhấn
+    if (gameState===GS.PLAYING && !f.blocking) {
+        const other = fighters[1-f.id];
+        if (justPressed[ctrl.punch] && f.attackCooldown<=0 && f.stunTimer<=0) {
+            justPressed[ctrl.punch] = false;
+            tryPunch(f, other); animName='Punch';
+        }
+        if (justPressed[ctrl.ball] && f.ballCooldown<=0 && f.stunTimer<=0) {
+            justPressed[ctrl.ball] = false;
+            spawnBall(f); animName='ThumbsUp';
+        }
+        if (justPressed[ctrl.burst] && f.burstCooldown<=0 && f.stunTimer<=0) {
+            justPressed[ctrl.burst] = false;
+            spawnBurst(f); animName='Dance';
+        }
+    }
+
+    // Idle / walk anim
+    if (!f.blocking && f.onGround && f.attackCooldown<=0 && f.stunTimer<=0) {
+        if (moving) { if (f.currentAction!==f.actions['Walking']) { fadeToAction(f,'Walking'); animName='Walking'; } }
+        else        { if (f.currentAction!==f.actions['Idle'])    { fadeToAction(f,'Idle');    animName='Idle'; } }
+    }
+
+    // Face opponent
+    const other = fighters[1-f.id];
+    if (f.attackCooldown<=0 && !f.blocking) f.facing = other.x>f.x?1:-1;
+    f.model.position.set(f.x,f.y,0);
+    f.model.rotation.y = f.facing>0?Math.PI/2:-Math.PI/2;
+    if (f.mixer) f.mixer.update(dt);
+    updateCDPips(f);
+
+    // Send state ~30fps (vị trí, HP, shield — KHÔNG kèm animation)
+    if (netMode!=='local') {
+        const now = performance.now();
+        if (now-lastNetSend > 33) { netSendState(f); lastNetSend=now; }
+        // Gửi anim event riêng ngay khi có thay đổi (không chờ 33ms)
+        if (animName) netSendAnim(animName);
+    }
+}
+
+// ── TIMER / GAME END ───────────────────────────────────────────
+function startTimer() {
+    gameTime=60; clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+        if (gameState!==GS.PLAYING) return;
+        gameTime--;
+        const el=document.getElementById('timer');
+        el.textContent=gameTime; el.classList.toggle('urgent',gameTime<=10);
+        if (gameTime<=0) endGame(fighters[0].hp>=fighters[1].hp?0:1);
+    },1000);
+}
+
+function endGame(winnerId) {
+    if (gameState===GS.OVER) return;
+    gameState=GS.OVER; clearInterval(timerInterval);
+    const w=fighters[winnerId], l=fighters[1-winnerId];
+    if (w.model) fadeToAction(w,'Dance');
+    if (l.model) fadeToAction(l,'Death');
+    setTimeout(() => {
+        const ov=document.getElementById('overlay');
+        ov.innerHTML=`
+            <div id="ko-text">K.O.!</div>
+            <div id="winner-text" style="color:${winnerId===0?'#00e5ff':'#ff4081'}">${w.name} WINS!</div>
+            <p style="color:#555;letter-spacing:2px;margin:10px 0 24px">VICTORY</p>
+            <button id="restart-btn" onclick="restartGame()">▶ REMATCH</button>
+        `;
+        ov.style.display='flex';
+    },800);
+}
+
+function doReset() {
+    fighters[0].hp=100; fighters[0].x=-3; fighters[0].y=0; fighters[0].vy=0; fighters[0].onGround=true;
+    fighters[1].hp=100; fighters[1].x=3;  fighters[1].y=0; fighters[1].vy=0; fighters[1].onGround=true;
+    fighters.forEach(f=>{
+        f.attackCooldown=0; f.ballCooldown=0; f.burstCooldown=0;
+        f.dashCooldown=0; f.stunTimer=0; f.comboCount=0;
+        f.shield=SHIELD_MAX; f.blocking=false; f.jumpCount=0;
+        updateHP(f); updateShieldBar(f); updateCDPips(f);
+    });
+    _lastSentAnim = '';
+    // Clear projectiles
+    projectiles.forEach(p=>scene.remove(p.mesh));
+    projectiles.length=0;
+    document.getElementById('timer').textContent='60'; document.getElementById('timer').classList.remove('urgent');
+    document.getElementById('overlay').style.display='none';
+    gameState=GS.PLAYING;
+    startTimer();
+}
+
+window.restartGame = function() {
+    _gameStarted = false;
+    if (netMode!=='local' && conn && conn.open) conn.send({type:'rematch'});
+    doReset();
+};
+
+// ── RENDER LOOP ────────────────────────────────────────────────
+const clock = new THREE.Clock();
+function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    if (gameState===GS.PLAYING) {
+        if (netMode==='local') {
+            updateFighter(fighters[0],dt,true);
+            updateFighter(fighters[1],dt,true);
+        } else {
+            const myIdx = netMode==='host'?0:1;
+            fighters.forEach((f,i)=>updateFighter(f,dt,i===myIdx));
+        }
+        updateProjectiles(dt);
+    } else if (gameState===GS.OVER) {
+        fighters.forEach(f=>{ if(f.mixer) f.mixer.update(dt); });
+    }
+    const pa=pGeo.attributes.position.array;
+    for(let i=0;i<pCount;i++){pa[i*3+1]-=0.01;if(pa[i*3+1]<0)pa[i*3+1]=12;}
+    pGeo.attributes.position.needsUpdate=true;
+    const t=performance.now()*0.001;
+    rimLight1.intensity=6+Math.sin(t*1.7)*2; rimLight2.intensity=6+Math.sin(t*2.1+1)*2;
+    renderer.render(scene,camera);
+}
+animate();
+</script>
+</body>
+</html>
