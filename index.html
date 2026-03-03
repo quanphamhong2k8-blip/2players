@@ -240,12 +240,23 @@ const ICE_SERVERS = [
       username: 'openrelayproject', credential: 'openrelayproject' },
 ];
 
+// Tự động detect 5G/CGNAT: nếu IP public là shared (CGNAT), ép relay
+// Mặc định: thử all trước, nếu fail trong 8s → retry với relay-only
 const PEER_CFG = {
     config: {
         iceServers: ICE_SERVERS,
-        iceTransportPolicy: 'all',      // thử direct trước, fallback TURN
-        iceCandidatePoolSize: 10,       // chuẩn bị sẵn nhiều candidate
-        bundlePolicy: 'max-bundle',     // gom kênh, giảm overhead
+        iceTransportPolicy: 'all',
+        iceCandidatePoolSize: 10,
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require'
+    }
+};
+const PEER_CFG_RELAY = {
+    config: {
+        iceServers: ICE_SERVERS,
+        iceTransportPolicy: 'relay',   // ép qua TURN, bỏ qua P2P hoàn toàn
+        iceCandidatePoolSize: 10,
+        bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require'
     }
 };
@@ -374,13 +385,38 @@ window.joinGame = function() {
         netMode = 'local'; stopRetries();
     });
 
-    // Timeout 20 giây (5G có thể ICE chậm hơn WiFi)
+    // Timeout 12s lần đầu → tự động retry với relay-only (cho 5G/CGNAT)
     window._joinTimeout = setTimeout(() => {
         if (_gameStarted) return;
-        setStatus('Hết thời gian — Thử lại hoặc kiểm tra mã phòng', 'err');
-        netMode = 'local'; stopRetries();
+        setStatus('⚡ Đang thử chế độ 5G/CGNAT (relay)...', 'wait');
         try { conn && conn.close(); } catch(e){}
-    }, 20000);
+
+        // Retry với iceTransportPolicy: 'relay' — bắt buộc qua TURN
+        conn = peer.connect(id, { ...CONN_OPTS, config: PEER_CFG_RELAY.config });
+        const onOpen2 = () => {
+            console.log('[NET] Client conn open (relay mode)');
+            setStatus('Đã kết nối qua relay! Chờ host...', 'ok');
+            conn.on('data',  onNetData);
+            conn.on('close', () => { setStatus('Host ngắt kết nối!', 'err'); stopRetries(); });
+            conn.on('error', e => setStatus('Lỗi: ' + e, 'err'));
+            let gotReady2 = false;
+            _pingRetryInterval = setInterval(() => {
+                if (gotReady2 || !conn || !conn.open) { clearInterval(_pingRetryInterval); return; }
+                conn.send({ type: 'ping' });
+            }, 600);
+            window._onGotReady = () => { gotReady2 = true; clearInterval(_pingRetryInterval); };
+        };
+        if (conn.open) onOpen2(); else conn.on('open', onOpen2);
+        conn.on('error', () => {});
+
+        // Timeout lần 2: thật sự thất bại
+        window._joinTimeout2 = setTimeout(() => {
+            if (_gameStarted) return;
+            setStatus('❌ Không kết nối được — Kiểm tra mã phòng hoặc mạng', 'err');
+            netMode = 'local'; stopRetries();
+            try { conn && conn.close(); } catch(e){}
+        }, 12000);
+    }, 12000);
 };
 
 function stopRetries() {
@@ -1051,7 +1087,7 @@ function updateFighter(f, dt, isMine) {
     f.stunTimer       = Math.max(0, f.stunTimer - dt);
 
     if (!isMine) {
-        // Remote fighter: luôn apply position/rotation đã sync từ mạng vào model
+        // Remote fighter: chỉ dùng facing nhận từ mạng, KHÔNG tự tính lại
         f.model.position.set(f.x, f.y, 0);
         f.model.rotation.y = f.facing > 0 ? Math.PI/2 : -Math.PI/2;
         if (f.mixer) f.mixer.update(dt);
@@ -1077,8 +1113,8 @@ function updateFighter(f, dt, isMine) {
 
     // Movement (disable while blocking)
     if (!f.blocking) {
-        if (keys[ctrl.left])  { f.x-=SPEED*dt; f.facing=-1; moving=true; }
-        if (keys[ctrl.right]) { f.x+=SPEED*dt; f.facing=1;  moving=true; }
+        if (keys[ctrl.left])  { f.x -= SPEED*dt; moving = true; }
+        if (keys[ctrl.right]) { f.x += SPEED*dt; moving = true; }
     }
     f.x = Math.max(BOUNDS.left, Math.min(BOUNDS.right, f.x));
 
@@ -1114,11 +1150,14 @@ function updateFighter(f, dt, isMine) {
         else        { if (f.currentAction!==f.actions['Idle'])    { fadeToAction(f,'Idle');    animName='Idle'; } }
     }
 
-    // Face opponent
-    const other = fighters[1-f.id];
-    if (f.attackCooldown<=0 && !f.blocking) f.facing = other.x>f.x?1:-1;
-    f.model.position.set(f.x,f.y,0);
-    f.model.rotation.y = f.facing>0?Math.PI/2:-Math.PI/2;
+    // Face opponent — luôn quay về phía đối thủ dựa trên tọa độ hiện tại
+    // Dùng tọa độ fighter khác (dù là remote) — đây là tọa độ đã sync nên đủ chính xác
+    if (f.attackCooldown <= 0 && !f.blocking) {
+        const other = fighters[1 - f.id];
+        f.facing = other.x > f.x ? 1 : -1;
+    }
+    f.model.position.set(f.x, f.y, 0);
+    f.model.rotation.y = f.facing > 0 ? Math.PI/2 : -Math.PI/2;
     if (f.mixer) f.mixer.update(dt);
     updateCDPips(f);
 
