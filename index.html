@@ -582,30 +582,34 @@ function onNetData(data) {
 
         const dur = animDurations[data.anim] || 900;
         const action = remote.actions[data.anim];
+        const LOOP_ONCE_ANIMS = new Set(['Punch','ThumbsUp','No','Jump','Dance','Death','Running']);
 
-        // Set LoopOnce TRƯỚC khi play để clip chạy đủ 1 lần
-        action.setLoop(THREE.LoopOnce, 1);
-        action.clampWhenFinished = true;
+        // Dừng hết animation đang chạy trước
+        if (remote.mixer) remote.mixer.stopAllAction();
 
-        // Fade prev out, fade action in
-        if (remote.currentAction && remote.currentAction !== action) {
-            remote.currentAction.fadeOut(0.1);
-        }
-        remote.currentAction = action;
-        action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.05).play();
+        if (LOOP_ONCE_ANIMS.has(data.anim)) {
+            action.setLoop(THREE.LoopOnce, 1);
+            action.clampWhenFinished = true;
+            action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
+            remote.currentAction = action;
 
-        // Về Idle sau đúng thời lượng clip (trừ Death/Dance)
-        if (data.anim !== 'Death' && data.anim !== 'Dance') {
-            setTimeout(() => {
-                // Chỉ về Idle nếu không có animation khác đã override
-                if (remote.currentAction === action && remote.actions['Idle']) {
-                    action.fadeOut(0.15);
+            // Về Idle sau đúng thời lượng (trừ Death/Dance)
+            if (data.anim !== 'Death' && data.anim !== 'Dance') {
+                setTimeout(() => {
+                    if (!remote.actions['Idle']) return;
+                    if (remote.mixer) remote.mixer.stopAllAction();
                     remote.currentAction = remote.actions['Idle'];
                     remote.currentAction
                         .setLoop(THREE.LoopRepeat, Infinity)
-                        .reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.15).play();
-                }
-            }, dur);
+                        .reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
+                }, dur);
+            }
+        } else {
+            // Walking/Idle: loop bình thường
+            action.setLoop(THREE.LoopRepeat, Infinity);
+            action.clampWhenFinished = false;
+            action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
+            remote.currentAction = action;
         }
 
     } else if (data.type === 'hit') {
@@ -678,15 +682,25 @@ function netSendState(f) {
     } catch(e) { console.warn('[NET] sendState failed:', e); }
 }
 
-// Gửi animation event riêng — chỉ one-shot, dedup trong 600ms
+// Gửi animation event riêng — chỉ one-shot, dedup thông minh theo từng clip
+const _animSentAt = {}; // animName → timestamp lần gửi cuối
+const ANIM_DEDUP_MS = {
+    'Punch':    550,   // cooldown đúng bằng attackCooldown → không bao giờ spam
+    'ThumbsUp': 2100,
+    'Dance':    2100,
+    'No':        350,
+    'Jump':      500,
+    'Running':   300,
+    'Death':    9999,
+};
+
 function netSendAnim(animName) {
     if (!conn || !conn.open) return;
     if (!ONE_SHOT_ANIMS.has(animName)) return;
     const now = performance.now();
-    // Cho phép gửi lại nếu khác tên HOẶC đã quá 600ms từ lần gửi trước
-    if (_lastSentAnim === animName && now - _lastSentAnimTime < 600) return;
-    _lastSentAnim = animName;
-    _lastSentAnimTime = now;
+    const dedup = ANIM_DEDUP_MS[animName] ?? 600;
+    if (_animSentAt[animName] && now - _animSentAt[animName] < dedup) return;
+    _animSentAt[animName] = now;
     try { conn.send({ type:'anim', anim: animName }); }
     catch(e) {}
 }
